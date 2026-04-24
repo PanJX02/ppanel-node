@@ -660,6 +660,167 @@ EOF
     fi
 }
 
+# ===== 端口映射管理 =====
+PORTMAP_COMMENT_PREFIX="PPANEL_PORTMAP"
+
+portmap_generate_comment() {
+    local service_port=$1
+    local start_port=$2
+    local end_port=$3
+    echo "${PORTMAP_COMMENT_PREFIX}_${service_port}_${start_port}_${end_port}"
+}
+
+portmap_add() {
+    echo -e "${green}===== 添加 UDP 端口映射 =====${plain}"
+    read -rp "服务端口 (Hysteria2 实际监听端口): " service_port
+    read -rp "Hop 起始端口: " start_port
+    read -rp "Hop 结束端口: " end_port
+
+    # 验证
+    for port in $service_port $start_port $end_port; do
+        if ! [[ "$port" =~ ^[0-9]+$ ]] || [[ "$port" -lt 1 ]] || [[ "$port" -gt 65535 ]]; then
+            echo -e "${red}错误: 端口 '$port' 无效，必须是 1-65535 之间的数字${plain}"
+            return
+        fi
+    done
+    if [[ "$start_port" -gt "$end_port" ]]; then
+        echo -e "${red}错误: 起始端口不能大于结束端口${plain}"
+        return
+    fi
+
+    local comment=$(portmap_generate_comment "$service_port" "$start_port" "$end_port")
+    local port_range="${start_port}:${end_port}"
+
+    # IPv4
+    iptables -t nat -A PREROUTING -p udp --dport "$port_range" -j DNAT --to-destination ":$service_port" -m comment --comment "$comment" 2>/dev/null
+    if [[ $? -eq 0 ]]; then
+        echo -e "${green}IPv4 DNAT 已添加: UDP ${start_port}-${end_port} -> ${service_port}${plain}"
+    else
+        echo -e "${red}IPv4 DNAT 添加失败${plain}"
+    fi
+
+    # IPv6
+    modprobe ip6_tables 2>/dev/null
+    modprobe ip6table_nat 2>/dev/null
+    ip6tables -t nat -A PREROUTING -p udp --dport "$port_range" -j DNAT --to-destination ":$service_port" -m comment --comment "$comment" 2>/dev/null
+    if [[ $? -eq 0 ]]; then
+        echo -e "${green}IPv6 DNAT 已添加: UDP ${start_port}-${end_port} -> ${service_port}${plain}"
+    else
+        echo -e "${yellow}IPv6 DNAT 添加失败 (可能不支持)${plain}"
+    fi
+}
+
+portmap_list() {
+    echo -e "${green}===== 当前 UDP 端口映射规则 =====${plain}"
+    echo ""
+    echo -e "${green}[IPv4 规则]${plain}"
+    local v4_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "$PORTMAP_COMMENT_PREFIX")
+    if [[ -z "$v4_rules" ]]; then
+        echo -e "  ${yellow}无${plain}"
+    else
+        echo "$v4_rules" | while read line; do
+            echo "  $line"
+        done
+    fi
+    echo ""
+    echo -e "${green}[IPv6 规则]${plain}"
+    local v6_rules=$(ip6tables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "$PORTMAP_COMMENT_PREFIX")
+    if [[ -z "$v6_rules" ]]; then
+        echo -e "  ${yellow}无${plain}"
+    else
+        echo "$v6_rules" | while read line; do
+            echo "  $line"
+        done
+    fi
+}
+
+portmap_delete_by_comment() {
+    local cmd=$1
+    local comment=$2
+    local rules=$($cmd -t nat -S PREROUTING 2>/dev/null | grep "$comment")
+    if [[ -z "$rules" ]]; then
+        return
+    fi
+    echo "$rules" | while IFS= read -r line; do
+        line=$(echo "$line" | sed 's/^-A /-D /')
+        eval "$cmd -t nat $line" 2>/dev/null
+    done
+}
+
+portmap_delete() {
+    # 收集所有唯一的 comment
+    local comments=$(iptables -t nat -S PREROUTING 2>/dev/null | grep -oP "${PORTMAP_COMMENT_PREFIX}_[0-9_]+" | sort -u)
+    local comments_v6=$(ip6tables -t nat -S PREROUTING 2>/dev/null | grep -oP "${PORTMAP_COMMENT_PREFIX}_[0-9_]+" | sort -u)
+    local all_comments=$(echo -e "${comments}\n${comments_v6}" | sort -u | grep -v '^$')
+
+    if [[ -z "$all_comments" ]]; then
+        echo -e "${yellow}当前没有通过此工具添加的端口映射规则${plain}"
+        return
+    fi
+
+    echo -e "${green}===== 删除端口映射 =====${plain}"
+    local i=1
+    local comment_arr=()
+    while IFS= read -r c; do
+        # 解析 comment: PPANEL_PORTMAP_<svcport>_<start>_<end>
+        local parts=(${c//_/ })
+        local svc_port=${parts[2]}
+        local s_port=${parts[3]}
+        local e_port=${parts[4]}
+        echo -e "  ${green}${i}.${plain} UDP ${s_port}-${e_port} -> ${svc_port}"
+        comment_arr+=("$c")
+        ((i++))
+    done <<< "$all_comments"
+    echo -e "  ${green}a.${plain} 删除所有映射"
+    echo -e "  ${green}0.${plain} 返回"
+
+    read -rp "请选择: " choice
+    case $choice in
+        0) return ;;
+        a|A)
+            echo -e "${red}警告: 将删除所有通过此工具创建的端口映射规则!${plain}"
+            read -rp "确定吗? [y/N]: " confirm_del
+            if [[ "$confirm_del" =~ ^[Yy]$ ]]; then
+                for c in "${comment_arr[@]}"; do
+                    portmap_delete_by_comment "iptables" "$c"
+                    portmap_delete_by_comment "ip6tables" "$c"
+                done
+                echo -e "${green}所有端口映射规则已删除${plain}"
+            fi
+            ;;
+        *)
+            if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -le "${#comment_arr[@]}" ]]; then
+                local target_comment="${comment_arr[$((choice-1))]}"
+                portmap_delete_by_comment "iptables" "$target_comment"
+                portmap_delete_by_comment "ip6tables" "$target_comment"
+                echo -e "${green}映射规则已删除${plain}"
+            else
+                echo -e "${red}无效选择${plain}"
+            fi
+            ;;
+    esac
+}
+
+portmap_menu() {
+    while true; do
+        echo -e ""
+        echo -e "${green}===== UDP 端口映射管理 (Hysteria2 端口跳跃) =====${plain}"
+        echo -e "  ${green}1.${plain} 添加端口映射"
+        echo -e "  ${green}2.${plain} 查看当前映射"
+        echo -e "  ${green}3.${plain} 删除端口映射"
+        echo -e "  ${green}0.${plain} 返回主菜单"
+        read -rp "请选择 [0-3]: " pm_choice
+        case $pm_choice in
+            1) portmap_add ;;
+            2) portmap_list ;;
+            3) portmap_delete ;;
+            0) return ;;
+            *) echo -e "${red}无效选择${plain}" ;;
+        esac
+        echo ""
+    done
+}
+
 # 放开防火墙端口
 open_ports() {
     systemctl stop firewalld.service 2>/dev/null
@@ -694,6 +855,7 @@ show_usage() {
     echo "ppnode install      - 安装 PPanel-node"
     echo "ppnode uninstall    - 卸载 PPanel-node"
     echo "ppnode version      - 查看 PPanel-node 版本"
+    echo "ppnode portmap      - 管理 UDP 端口映射"
     echo "------------------------------------------"
 }
 
@@ -721,11 +883,12 @@ show_menu() {
   ${green}13.${plain} 升级 PPanel-node 维护脚本
   ${green}14.${plain} 生成 PPanel-node 配置文件
   ${green}15.${plain} 放行 VPS 的所有网络端口
-  ${green}16.${plain} 退出脚本
+  ${green}16.${plain} 管理 UDP 端口映射 (Hysteria2 端口跳跃)
+  ${green}17.${plain} 退出脚本
  "
  #后续更新可加入上方字符串中
     show_status
-    echo && read -rp "请输入选择 [0-16]: " num
+    echo && read -rp "请输入选择 [0-17]: " num
 
     case "${num}" in
         0) config ;;
@@ -744,8 +907,9 @@ show_menu() {
         13) update_shell ;;
         14) generate_config_file ;;
         15) open_ports ;;
-        16) exit ;;
-        *) echo -e "${red}请输入正确的数字 [0-16]${plain}" ;;
+        16) portmap_menu ;;
+        17) exit ;;
+        *) echo -e "${red}请输入正确的数字 [0-17]${plain}" ;;
     esac
 }
 
@@ -766,6 +930,7 @@ if [[ $# > 0 ]]; then
         "uninstall") check_install 0 && uninstall 0 ;;
         "version") check_install 0 && show_PPanel-node_version 0 ;;
         "update_shell") update_shell ;;
+        "portmap") portmap_menu ;;
         *) show_usage
     esac
 else
