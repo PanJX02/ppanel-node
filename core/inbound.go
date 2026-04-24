@@ -85,6 +85,9 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string, apiDir string) (*core.In
 		Enabled:      true,
 		DestOverride: coreConf.StringList{"http", "tls", "quic"},
 	}
+	if nodeInfo.Type == "hysteria2" || nodeInfo.Type == "hysteria" {
+		sniffingConfig.DestOverride = coreConf.StringList{"http", "tls"}
+	}
 	in.SniffingConfig = sniffingConfig
 
 	// Set TLS or Reality settings
@@ -105,6 +108,9 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string, apiDir string) (*core.In
 						KeyFile:  filepath.Join(apiDir, nodeInfo.Type+strconv.Itoa(nodeInfo.Id)+".key"),
 					},
 				},
+			}
+			if nodeInfo.Type == "hysteria2" || nodeInfo.Type == "hysteria" {
+				in.StreamSetting.TLSSettings.Alpn = &coreConf.StringList{"h3"}
 			}
 		}
 	case "reality":
