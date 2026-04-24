@@ -297,7 +297,7 @@ install_ppnode() {
     local current_version=""
     
     if [[ -f /usr/local/PPanel-node/ppnode ]]; then
-        current_version=$(/usr/local/PPanel-node/ppnode version | awk '{print $2}')
+        current_version=$(/usr/local/PPanel-node/ppnode version | grep "PPanel-node" | tail -n 1 | awk '{print $2}')
     fi
 
     if [[ -z "$version_param" ]]; then
