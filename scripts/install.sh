@@ -292,11 +292,77 @@ EOF
     fi
 }
 
+migrate_from_original() {
+    # 检测是否安装了原版 ppnode 脚本（通过特征字符串判断）
+    if [[ -f /usr/bin/ppnode ]] && grep -q "perfect-panel/PPanel-node" /usr/bin/ppnode 2>/dev/null; then
+        echo -e "${yellow}检测到原版 PPanel-node，正在迁移配置...${plain}"
+        
+        # 停止原版服务
+        if [[ x"${release}" == x"alpine" ]]; then
+            service PPanel-node stop 2>/dev/null
+        else
+            systemctl stop PPanel-node 2>/dev/null
+        fi
+
+        # 迁移 config.yml：将 Api: 单后端格式转换为 Nodes: 多后端列表格式
+        if [[ -f /etc/PPanel-node/config.yml ]] && grep -q "^Api:" /etc/PPanel-node/config.yml 2>/dev/null; then
+            local old_api_host=$(grep "ApiHost:" /etc/PPanel-node/config.yml | sed 's/.*ApiHost:[[:space:]]*//')
+            local old_server_id=$(grep "ServerID:" /etc/PPanel-node/config.yml | sed 's/.*ServerID:[[:space:]]*//')
+            local old_secret_key=$(grep "SecretKey:" /etc/PPanel-node/config.yml | sed 's/.*SecretKey:[[:space:]]*//')
+            local old_timeout=$(grep "Timeout:" /etc/PPanel-node/config.yml | sed 's/.*Timeout:[[:space:]]*//')
+            old_timeout=${old_timeout:-30}
+
+            # 提取 Log 配置
+            local old_log_level=$(grep "Level:" /etc/PPanel-node/config.yml | sed 's/.*Level:[[:space:]]*//')
+            local old_log_output=$(grep "Output:" /etc/PPanel-node/config.yml | head -1 | sed 's/.*Output:[[:space:]]*//')
+            local old_log_access=$(grep "Access:" /etc/PPanel-node/config.yml | sed 's/.*Access:[[:space:]]*//')
+            old_log_level=${old_log_level:-warn}
+            old_log_access=${old_log_access:-none}
+
+            # 写入新格式
+            cat > /etc/PPanel-node/config.yml <<EOF
+Log:
+  Level: ${old_log_level}
+  Output: ${old_log_output}
+  Access: ${old_log_access}
+
+Nodes:
+  - ApiHost: ${old_api_host}
+    ServerID: ${old_server_id}
+    SecretKey: ${old_secret_key}
+    Timeout: ${old_timeout}
+    LocalConfig: false
+EOF
+            echo -e "${green}配置文件已从原版格式迁移为新格式。${plain}"
+        fi
+
+        # 清理 /etc/PPanel-node/ 下除 geoip.dat、geosite.dat、config.yml 之外的所有文件和目录
+        find /etc/PPanel-node/ -mindepth 1 \
+            ! -name "geoip.dat" \
+            ! -name "geosite.dat" \
+            ! -name "config.yml" \
+            -exec rm -rf {} + 2>/dev/null
+        echo -e "${green}已清理原版残留文件。${plain}"
+
+        # 返回 1 表示需要强制全新安装（原版和二改版的发布仓库不同）
+        return 1
+    fi
+    return 0
+}
+
 install_ppnode() {
     local version_param="$1"
     local current_version=""
+    local force_install=false
+
+    # 检测并迁移原版
+    migrate_from_original
+    if [[ $? -eq 1 ]]; then
+        force_install=true
+        current_version=""
+    fi
     
-    if [[ -f /usr/local/PPanel-node/ppnode ]]; then
+    if [[ "$force_install" != true ]] && [[ -f /usr/local/PPanel-node/ppnode ]]; then
         current_version=$(/usr/local/PPanel-node/ppnode version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
     fi
 
