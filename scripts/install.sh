@@ -241,6 +241,7 @@ Nodes:
     SecretKey: ${secret_key}
     # 请求超时时间（单位：秒）
     Timeout: 30
+    LocalConfig: false
 EOF
         echo -e "${green}PPanel-node 配置文件生成完成,正在重新启动服务${plain}"
         if [[ x"${release}" == x"alpine" ]]; then
@@ -271,6 +272,7 @@ append_ppnode_config() {
     ServerID: ${server_id}
     SecretKey: ${secret_key}
     Timeout: 30
+    LocalConfig: false
 EOF
         echo -e "${green}成功将后端 API: ${api_host} 追加到配置文件中。${plain}"
     fi
@@ -292,45 +294,63 @@ EOF
 
 install_ppnode() {
     local version_param="$1"
-    if [[ -e /usr/local/PPanel-node/ ]]; then
-        rm -rf /usr/local/PPanel-node/
+    local current_version=""
+    
+    if [[ -f /usr/local/PPanel-node/ppnode ]]; then
+        current_version=$(/usr/local/PPanel-node/ppnode version | awk '{print $2}')
     fi
 
-    mkdir /usr/local/PPanel-node/ -p
-    cd /usr/local/PPanel-node/
-
-    if  [[ -z "$version_param" ]] ; then
+    if [[ -z "$version_param" ]]; then
         last_version=$(curl -Ls "https://api.github.com/repos/PanJX02/ppanel-node/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [[ ! -n "$last_version" ]]; then
             echo -e "${red}检测 PPanel-node 版本失败，可能是超出 Github API 限制，请稍后再试，或手动指定 PPanel-node 版本安装${plain}"
             exit 1
         fi
-        echo -e "${green}检测到最新版本：${last_version}，开始安装...${plain}"
+    else
+        last_version=$version_param
+    fi
+
+    local do_install=true
+
+    if [[ -n "$current_version" ]]; then
+        if [[ "$current_version" == "$last_version" ]]; then
+            echo -e "${green}当前已是最新版本 (${current_version})，跳过核心程序下载环节。${plain}"
+            do_install=false
+        else
+            read -rp "发现新版本 (${last_version})，当前版本 (${current_version})。是否更新 PPanel-node？(y/n) [默认: y]: " update_choice
+            update_choice=${update_choice:-y}
+            if [[ ! "$update_choice" =~ ^[Yy]$ ]]; then
+                echo -e "${yellow}已跳过版本更新，保留当前版本 (${current_version})。${plain}"
+                do_install=false
+            fi
+        fi
+    fi
+
+    if [[ "$do_install" == true ]]; then
+        if [[ -e /usr/local/PPanel-node/ ]]; then
+            rm -rf /usr/local/PPanel-node/
+        fi
+
+        mkdir /usr/local/PPanel-node/ -p
+        cd /usr/local/PPanel-node/
+
+        echo -e "${green}开始下载版本：${last_version}...${plain}"
         url="https://github.com/PanJX02/ppanel-node/releases/download/${last_version}/ppanel-node-linux-${arch}.zip"
         curl -sL "$url" | pv -s 30M -W -N "下载进度" > /usr/local/PPanel-node/ppanel-node-linux.zip
         if [[ $? -ne 0 ]]; then
             echo -e "${red}下载 PPanel-node 失败，请确保你的服务器能够下载 Github 的文件${plain}"
             exit 1
         fi
-    else
-    last_version=$version_param
-        url="https://github.com/PanJX02/ppanel-node/releases/download/${last_version}/ppanel-node-linux-${arch}.zip"
-        curl -sL "$url" | pv -s 30M -W -N "下载进度" > /usr/local/PPanel-node/ppanel-node-linux.zip
-        if [[ $? -ne 0 ]]; then
-            echo -e "${red}下载 PPanel-node $1 失败，请确保此版本存在${plain}"
-            exit 1
-        fi
-    fi
 
-    unzip ppanel-node-linux.zip
-    rm ppanel-node-linux.zip -f
-    chmod +x ppnode
-    mkdir /etc/PPanel-node/ -p
-    cp geoip.dat /etc/PPanel-node/
-    cp geosite.dat /etc/PPanel-node/
-    if [[ x"${release}" == x"alpine" ]]; then
-        rm /etc/init.d/PPanel-node -f
-        cat <<EOF > /etc/init.d/PPanel-node
+        unzip ppanel-node-linux.zip
+        rm ppanel-node-linux.zip -f
+        chmod +x ppnode
+        mkdir /etc/PPanel-node/ -p
+        cp geoip.dat /etc/PPanel-node/
+        cp geosite.dat /etc/PPanel-node/
+        if [[ x"${release}" == x"alpine" ]]; then
+            rm /etc/init.d/PPanel-node -f
+            cat <<EOF > /etc/init.d/PPanel-node
 #!/sbin/openrc-run
 
 name="PPanel-node"
@@ -347,12 +367,12 @@ depend() {
         need net
 }
 EOF
-        chmod +x /etc/init.d/PPanel-node
-        rc-update add PPanel-node default
-        echo -e "${green}PPanel-node ${last_version}${plain} 安装完成，已设置开机自启"
-    else
-        rm /etc/systemd/system/PPanel-node.service -f
-        cat <<EOF > /etc/systemd/system/PPanel-node.service
+            chmod +x /etc/init.d/PPanel-node
+            rc-update add PPanel-node default
+            echo -e "${green}PPanel-node ${last_version}${plain} 安装完成，已设置开机自启"
+        else
+            rm /etc/systemd/system/PPanel-node.service -f
+            cat <<EOF > /etc/systemd/system/PPanel-node.service
 [Unit]
 Description=PPanel-node Service
 After=network.target nss-lookup.target
@@ -374,13 +394,15 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 EOF
-        systemctl daemon-reload
-        systemctl stop PPanel-node
-        systemctl enable PPanel-node
-        echo -e "${green}PPanel-node ${last_version}${plain} 安装完成，已设置开机自启"
-    fi
+            systemctl daemon-reload
+            systemctl stop PPanel-node
+            systemctl enable PPanel-node
+            echo -e "${green}PPanel-node ${last_version}${plain} 安装完成，已设置开机自启"
+        fi
 
-    if [[ ! -f /etc/PPanel-node/config.yml ]]; then
+        curl -o /usr/bin/ppnode -Ls https://raw.githubusercontent.com/PanJX02/ppanel-node/master/scripts/ppnode.sh
+        chmod +x /usr/bin/ppnode
+    fi
         # 如果通过 CLI 传入了完整参数，则直接生成配置并跳过交互
         if [[ -n "$API_HOST_ARG" && -n "$SERVER_ID_ARG" && -n "$SECRET_KEY_ARG" ]]; then
             generate_ppnode_config "$API_HOST_ARG" "$SERVER_ID_ARG" "$SECRET_KEY_ARG"

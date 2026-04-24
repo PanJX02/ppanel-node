@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
@@ -22,9 +23,8 @@ import (
 )
 
 var (
-	config    string
-	watch     bool
-	localOnly bool
+	config string
+	watch  bool
 )
 
 var serverCommand = cobra.Command{
@@ -41,9 +41,6 @@ func init() {
 	serverCommand.PersistentFlags().
 		BoolVarP(&watch, "watch", "w",
 			true, "watch file path change")
-	serverCommand.PersistentFlags().
-		BoolVarP(&localOnly, "local", "l",
-			false, "use local config only, skip fetching from panel")
 	command.AddCommand(&serverCommand)
 }
 
@@ -152,15 +149,40 @@ func startBackends(c *conf.Conf, reloadCh chan struct{}) []*Backend {
 		}
 
 		p := panel.NewClientV2(&apiConf)
-		serverconfig, err := panel.GetServerConfig(context.Background(), p)
-		if err != nil {
-			log.WithField("err", err).Errorf("获取服务端配置失败: %s", apiConf.ApiHost)
-			continue
-		}
-		if serverconfig == nil || serverconfig.Data == nil || serverconfig.Data.Protocols == nil {
-			continue
+		var serverconfig *panel.ServerConfigResponse
+		var err_c error
+
+		// 判断是否需要读取本地旧配置（开启了本地锁定且文件存在）
+		_, err1 := os.Stat(filepath.Join(apiDir, "node.json"))
+		_, err2 := os.Stat(filepath.Join(apiDir, "core.json"))
+		hasLocalFiles := err1 == nil && err2 == nil
+
+		if !apiConf.LocalConfig || !hasLocalFiles {
+			serverconfig, err_c = panel.GetServerConfig(context.Background(), p)
+			if err_c != nil {
+				log.WithField("err", err_c).Errorf("获取服务端配置失败: %s", apiConf.ApiHost)
+				continue
+			}
+			if serverconfig == nil || serverconfig.Data == nil || serverconfig.Data.Protocols == nil {
+				continue
+			}
+		} else {
+			data, err := os.ReadFile(filepath.Join(apiDir, "node.json"))
+			if err != nil {
+				log.WithField("err", err).Errorf("读取本地 node.json 失败: %s", apiConf.ApiHost)
+				continue
+			}
+			err = json.Unmarshal(data, &serverconfig)
+			if err != nil {
+				log.WithField("err", err).Errorf("解析本地 node.json 失败: %s", apiConf.ApiHost)
+				continue
+			}
 		}
 
+		xraycore := core.New(c, p, apiDir)
+		xraycore.ReloadCh = reloadCh
+		isLocal := apiConf.LocalConfig && hasLocalFiles
+		
 		// Check port conflicts
 		for _, proto := range *serverconfig.Data.Protocols {
 			if proto.Enable {
@@ -172,9 +194,7 @@ func startBackends(c *conf.Conf, reloadCh chan struct{}) []*Backend {
 			}
 		}
 
-		xraycore := core.New(c, p, apiDir)
-		xraycore.ReloadCh = reloadCh
-		err = xraycore.Start(serverconfig, apiDir, localOnly)
+		err = xraycore.Start(serverconfig, apiDir, isLocal)
 		if err != nil {
 			log.WithField("err", err).Errorf("启动Xray核心失败: %s", apiConf.ApiHost)
 			continue
