@@ -110,7 +110,7 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string, apiDir string) (*core.In
 				},
 			}
 			if nodeInfo.Type == "hysteria2" || nodeInfo.Type == "hysteria" {
-				in.StreamSetting.TLSSettings.Alpn = &coreConf.StringList{"h3"}
+				in.StreamSetting.TLSSettings.ALPN = &coreConf.StringList{"h3"}
 			}
 		}
 	case "reality":
