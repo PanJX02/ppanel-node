@@ -22,8 +22,9 @@ import (
 )
 
 var (
-	config string
-	watch  bool
+	config    string
+	watch     bool
+	localOnly bool
 )
 
 var serverCommand = cobra.Command{
@@ -40,6 +41,9 @@ func init() {
 	serverCommand.PersistentFlags().
 		BoolVarP(&watch, "watch", "w",
 			true, "watch file path change")
+	serverCommand.PersistentFlags().
+		BoolVarP(&localOnly, "local", "l",
+			false, "use local config only, skip fetching from panel")
 	command.AddCommand(&serverCommand)
 }
 
@@ -170,7 +174,7 @@ func startBackends(c *conf.Conf, reloadCh chan struct{}) []*Backend {
 
 		xraycore := core.New(c, p, apiDir)
 		xraycore.ReloadCh = reloadCh
-		err = xraycore.Start(serverconfig, apiDir)
+		err = xraycore.Start(serverconfig, apiDir, localOnly)
 		if err != nil {
 			log.WithField("err", err).Errorf("启动Xray核心失败: %s", apiConf.ApiHost)
 			continue

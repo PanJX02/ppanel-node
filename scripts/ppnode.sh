@@ -157,8 +157,60 @@ config() {
     esac
 }
 
+delete_backend() {
+    if [[ ! -f /etc/PPanel-node/config.yml ]]; then
+        echo -e "${red}未找到配置文件。${plain}"
+        if [[ $# == 0 ]]; then before_show_menu; fi
+        return
+    fi
+    local api_hosts=($(grep "ApiHost:" /etc/PPanel-node/config.yml | awk '{print $2}'))
+    if [[ ${#api_hosts[@]} -eq 0 ]]; then
+        echo -e "${red}当前配置中没有后端节点。${plain}"
+        if [[ $# == 0 ]]; then before_show_menu; fi
+        return
+    fi
+    echo -e "${green}当前存在的后端节点：${plain}"
+    local i=1
+    for host in "${api_hosts[@]}"; do
+        echo -e "  ${green}${i}.${plain} ${host}"
+        ((i++))
+    done
+    read -rp "请输入要删除的节点序号 [1-${#api_hosts[@]}]: " choice
+    if [[ "$choice" -ge 1 && "$choice" -le "${#api_hosts[@]}" ]]; then
+        local target_host="${api_hosts[$((choice-1))]}"
+        confirm "确定要删除节点 ${target_host} 吗?" "n"
+        if [[ $? == 0 ]]; then
+            awk -v target="ApiHost: ${target_host}" '
+            BEGIN { deleting=0 }
+            /^  - / {
+                if (index($0, target) > 0) { deleting=1 } else { deleting=0 }
+            }
+            { if (!deleting) { print $0 } }
+            ' /etc/PPanel-node/config.yml > /tmp/config.yml.tmp && mv /tmp/config.yml.tmp /etc/PPanel-node/config.yml
+            echo -e "${green}已成功从配置中删除节点 ${target_host}。${plain}"
+            restart
+            return
+        fi
+    fi
+    if [[ $# == 0 ]]; then before_show_menu; fi
+}
+
 uninstall() {
-    confirm "确定要卸载 PPanel-node 吗?" "n"
+    echo -e "  ${green}1.${plain} 删除单个后端节点配置"
+    echo -e "  ${green}2.${plain} 完全卸载 PPanel-node"
+    echo && read -rp "请输入选择 [1-2]: " uninstall_choice
+    if [[ "${uninstall_choice}" == "1" ]]; then
+        delete_backend
+        return
+    elif [[ "${uninstall_choice}" != "2" ]]; then
+        echo -e "${red}输入无效${plain}"
+        if [[ $# == 0 ]]; then
+            before_show_menu
+        fi
+        return
+    fi
+
+    confirm "确定要完全卸载 PPanel-node 吗?" "n"
     if [[ $? != 0 ]]; then
         if [[ $# == 0 ]]; then
             show_menu
@@ -232,10 +284,34 @@ stop() {
     fi
 }
 
-restart() {
+restart_local() {
     if [[ x"${release}" == x"alpine" ]]; then
+        sed -i 's/command_args="server"/command_args="server --local"/' /etc/init.d/PPanel-node
         service PPanel-node restart
     else
+        sed -i 's/ExecStart=\/usr\/local\/PPanel-node\/ppnode server$/ExecStart=\/usr\/local\/PPanel-node\/ppnode server --local/' /etc/systemd/system/PPanel-node.service
+        systemctl daemon-reload
+        systemctl restart PPanel-node
+    fi
+    sleep 2
+    check_status
+    if [[ $? == 0 ]]; then
+        echo -e "${green}PPanel-node 仅使用本地配置重启成功，请使用 ppnode log 查看运行日志${plain}"
+    else
+        echo -e "${red}PPanel-node可能启动失败，请稍后使用 ppnode log 查看日志信息${plain}"
+    fi
+    if [[ $# == 0 ]]; then
+        before_show_menu
+    fi
+}
+
+restart() {
+    if [[ x"${release}" == x"alpine" ]]; then
+        sed -i 's/command_args="server --local"/command_args="server"/' /etc/init.d/PPanel-node
+        service PPanel-node restart
+    else
+        sed -i 's/ExecStart=\/usr\/local\/PPanel-node\/ppnode server --local/ExecStart=\/usr\/local\/PPanel-node\/ppnode server/' /etc/systemd/system/PPanel-node.service
+        systemctl daemon-reload
         systemctl restart PPanel-node
     fi
     sleep 2
@@ -536,7 +612,8 @@ show_usage() {
     echo "ppnode              - 显示管理菜单 (功能更多)"
     echo "ppnode start        - 启动 PPanel-node"
     echo "ppnode stop         - 停止 PPanel-node"
-    echo "ppnode restart      - 重启 PPanel-node"
+    echo "ppnode restart      - 拉取配置并重启 PPanel-node"
+    echo "ppnode restart_local- 仅重启 PPanel-node(使用本地配置)"
     echo "ppnode status       - 查看 PPanel-node 状态"
     echo "ppnode enable       - 设置 PPanel-node 开机自启"
     echo "ppnode disable      - 取消 PPanel-node 开机自启"
@@ -562,22 +639,23 @@ show_menu() {
 ————————————————
   ${green}4.${plain} 启动 PPanel-node
   ${green}5.${plain} 停止 PPanel-node
-  ${green}6.${plain} 重启 PPanel-node
-  ${green}7.${plain} 查看 PPanel-node 状态
-  ${green}8.${plain} 查看 PPanel-node 日志
+  ${green}6.${plain} 拉取配置并重启 PPanel-node
+  ${green}7.${plain} 仅重启 PPanel-node(使用本地配置)
+  ${green}8.${plain} 查看 PPanel-node 状态
+  ${green}9.${plain} 查看 PPanel-node 日志
 ————————————————
-  ${green}9.${plain} 设置 PPanel-node 开机自启
-  ${green}10.${plain} 取消 PPanel-node 开机自启
+  ${green}10.${plain} 设置 PPanel-node 开机自启
+  ${green}11.${plain} 取消 PPanel-node 开机自启
 ————————————————
-  ${green}11.${plain} 查看 PPanel-node 版本
-  ${green}12.${plain} 升级 PPanel-node 维护脚本
-  ${green}13.${plain} 生成 PPanel-node 配置文件
-  ${green}14.${plain} 放行 VPS 的所有网络端口
-  ${green}15.${plain} 退出脚本
+  ${green}12.${plain} 查看 PPanel-node 版本
+  ${green}13.${plain} 升级 PPanel-node 维护脚本
+  ${green}14.${plain} 生成 PPanel-node 配置文件
+  ${green}15.${plain} 放行 VPS 的所有网络端口
+  ${green}16.${plain} 退出脚本
  "
  #后续更新可加入上方字符串中
     show_status
-    echo && read -rp "请输入选择 [0-15]: " num
+    echo && read -rp "请输入选择 [0-16]: " num
 
     case "${num}" in
         0) config ;;
@@ -587,16 +665,17 @@ show_menu() {
         4) check_install && start ;;
         5) check_install && stop ;;
         6) check_install && restart ;;
-        7) check_install && status ;;
-        8) check_install && show_log ;;
-        9) check_install && enable ;;
-        10) check_install && disable ;;
-        11) check_install && show_PPanel-node_version ;;
-        12) update_shell ;;
-        13) generate_config_file ;;
-        14) open_ports ;;
-        15) exit ;;
-        *) echo -e "${red}请输入正确的数字 [0-15]${plain}" ;;
+        7) check_install && restart_local ;;
+        8) check_install && status ;;
+        9) check_install && show_log ;;
+        10) check_install && enable ;;
+        11) check_install && disable ;;
+        12) check_install && show_PPanel-node_version ;;
+        13) update_shell ;;
+        14) generate_config_file ;;
+        15) open_ports ;;
+        16) exit ;;
+        *) echo -e "${red}请输入正确的数字 [0-16]${plain}" ;;
     esac
 }
 
@@ -606,6 +685,7 @@ if [[ $# > 0 ]]; then
         "start") check_install 0 && start 0 ;;
         "stop") check_install 0 && stop 0 ;;
         "restart") check_install 0 && restart 0 ;;
+        "restart_local") check_install 0 && restart_local 0 ;;
         "status") check_install 0 && status 0 ;;
         "enable") check_install 0 && enable 0 ;;
         "disable") check_install 0 && disable 0 ;;

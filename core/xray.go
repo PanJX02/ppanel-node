@@ -63,21 +63,23 @@ func New(config *conf.Conf, client *panel.ClientV2, apiDir string) *XrayCore {
 	return core
 }
 
-func (v *XrayCore) Start(serverconfig *panel.ServerConfigResponse, apiDir string) error {
+func (v *XrayCore) Start(serverconfig *panel.ServerConfigResponse, apiDir string, localOnly bool) error {
 	v.access.Lock()
 	defer v.access.Unlock()
 
-	// save node.json (previously panel.json)
-	if panelJSON, err := json.MarshalIndent(serverconfig, "", "  "); err == nil {
-		_ = os.WriteFile(filepath.Join(apiDir, "node.json"), panelJSON, 0644)
-	}
+	if !localOnly {
+		// save node.json (previously panel.json)
+		if panelJSON, err := json.MarshalIndent(serverconfig, "", "  "); err == nil {
+			_ = os.WriteFile(filepath.Join(apiDir, "node.json"), panelJSON, 0644)
+		}
 
-	config := getCoreConfig(v.Config, serverconfig, apiDir)
+		config := getCoreConfig(v.Config, serverconfig, apiDir)
 
-	// save core.json (previously node.json)
-	m := protojson.MarshalOptions{Multiline: true}
-	if nodeJSON, err := m.Marshal(config); err == nil {
-		_ = os.WriteFile(filepath.Join(apiDir, "core.json"), nodeJSON, 0644)
+		// save core.json (previously node.json)
+		m := protojson.MarshalOptions{Multiline: true}
+		if nodeJSON, err := m.Marshal(config); err == nil {
+			_ = os.WriteFile(filepath.Join(apiDir, "core.json"), nodeJSON, 0644)
+		}
 	}
 
 	// load from file
@@ -102,7 +104,9 @@ func (v *XrayCore) Start(serverconfig *panel.ServerConfigResponse, apiDir string
 	v.ihm = v.Server.GetFeature(inbound.ManagerType()).(inbound.Manager)
 	v.ohm = v.Server.GetFeature(outbound.ManagerType()).(outbound.Manager)
 	v.dispatcher = v.Server.GetFeature(routing.DispatcherType()).(*dispatcher.DefaultDispatcher)
-	v.startTasks(serverconfig)
+	if !localOnly {
+		v.startTasks(serverconfig)
+	}
 	return nil
 }
 
