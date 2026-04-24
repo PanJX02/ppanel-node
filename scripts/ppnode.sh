@@ -163,7 +163,7 @@ toggle_local_config() {
         if [[ $# == 0 ]]; then before_show_menu; fi
         return
     fi
-    local api_hosts=($(grep "ApiHost:" /etc/PPanel-node/config.yml | awk '{print $2}'))
+    local api_hosts=($(grep "ApiHost:" /etc/PPanel-node/config.yml | sed 's/.*ApiHost:[[:space:]]*//'))
     if [[ ${#api_hosts[@]} -eq 0 ]]; then
         echo -e "${red}当前配置中没有后端节点。${plain}"
         if [[ $# == 0 ]]; then before_show_menu; fi
@@ -175,7 +175,7 @@ toggle_local_config() {
     for host in "${api_hosts[@]}"; do
         local_status=$(awk -v target="ApiHost: ${host}" '
             BEGIN { found=0; val="false" }
-            /^  - / { if (index($0, target)>0) found=1; else found=0 }
+            /ApiHost:/ { if (index($0, target)>0) found=1; else found=0 }
             found && /LocalConfig:/ { val=$2; gsub(/[^a-zA-Z]/, "", val); found=0 }
             END { print val }
         ' /etc/PPanel-node/config.yml)
@@ -187,12 +187,17 @@ toggle_local_config() {
         fi
         ((i++))
     done
-    read -rp "请输入要切换状态的节点序号 [1-${#api_hosts[@]}]: " choice
+    echo -e "  ${green}0.${plain} 返回主菜单"
+    read -rp "请输入要切换状态的节点序号 [0-${#api_hosts[@]}]: " choice
+    if [[ "$choice" == "0" ]]; then
+        show_menu
+        return
+    fi
     if [[ "$choice" -ge 1 && "$choice" -le "${#api_hosts[@]}" ]]; then
         local target_host="${api_hosts[$((choice-1))]}"
         local_status=$(awk -v target="ApiHost: ${target_host}" '
             BEGIN { found=0; val="false" }
-            /^  - / { if (index($0, target)>0) found=1; else found=0 }
+            /ApiHost:/ { if (index($0, target)>0) found=1; else found=0 }
             found && /LocalConfig:/ { val=$2; gsub(/[^a-zA-Z]/, "", val); found=0 }
             END { print val }
         ' /etc/PPanel-node/config.yml)
@@ -204,7 +209,7 @@ toggle_local_config() {
         
         awk -v target="ApiHost: ${target_host}" -v new_val="${new_val}" '
         BEGIN { in_target=0 }
-        /^  - / {
+        /ApiHost:/ {
             if (index($0, target)>0) {
                 in_target=1
                 print $0
@@ -239,7 +244,7 @@ delete_backend() {
         if [[ $# == 0 ]]; then before_show_menu; fi
         return
     fi
-    local api_hosts=($(grep "ApiHost:" /etc/PPanel-node/config.yml | awk '{print $2}'))
+    local api_hosts=($(grep "ApiHost:" /etc/PPanel-node/config.yml | sed 's/.*ApiHost:[[:space:]]*//'))
     if [[ ${#api_hosts[@]} -eq 0 ]]; then
         echo -e "${red}当前配置中没有后端节点。${plain}"
         if [[ $# == 0 ]]; then before_show_menu; fi
@@ -251,14 +256,19 @@ delete_backend() {
         echo -e "  ${green}${i}.${plain} ${host}"
         ((i++))
     done
-    read -rp "请输入要删除的节点序号 [1-${#api_hosts[@]}]: " choice
+    echo -e "  ${green}0.${plain} 返回主菜单"
+    read -rp "请输入要删除的节点序号 [0-${#api_hosts[@]}]: " choice
+    if [[ "$choice" == "0" ]]; then
+        show_menu
+        return
+    fi
     if [[ "$choice" -ge 1 && "$choice" -le "${#api_hosts[@]}" ]]; then
         local target_host="${api_hosts[$((choice-1))]}"
         confirm "确定要删除节点 ${target_host} 吗?" "n"
         if [[ $? == 0 ]]; then
             awk -v target="ApiHost: ${target_host}" '
             BEGIN { deleting=0 }
-            /^  - / {
+            /ApiHost:/ {
                 if (index($0, target) > 0) { deleting=1 } else { deleting=0 }
             }
             { if (!deleting) { print $0 } }
