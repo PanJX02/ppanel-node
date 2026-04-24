@@ -1,0 +1,9 @@
+﻿Log:
+  Level: warn
+
+Nodes:
+  - # comment
+    ApiHost: https://host1.com
+    ServerID: 1
+  - ApiHost: https://host2.com
+    ServerID: 2

@@ -98,20 +98,30 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string, apiDir string) (*core.In
 				in.StreamSetting = &coreConf.StreamConfig{}
 			}
 			in.StreamSetting.Security = "tls"
-			tlsConfig := &coreConf.TLSConfig{
-				Certs: []*coreConf.TLSCertConfig{
-					{
-						CertFile: filepath.Join(apiDir, nodeInfo.Type+strconv.Itoa(nodeInfo.Id)+".cer"),
-						KeyFile:  filepath.Join(apiDir, nodeInfo.Type+strconv.Itoa(nodeInfo.Id)+".key"),
-					},
-				},
-			}
-			// Hysteria2 requires h3 ALPN for TLS negotiation
+			// Hysteria2 requires h3 ALPN; use JSON to avoid TLSConfig.ALPN type differences across xray-core forks
 			if nodeInfo.Type == "hysteria2" || nodeInfo.Type == "hysteria" {
-				alpn := coreConf.StringList{"h3"}
-				tlsConfig.ALPN = &alpn
+				certFile := filepath.Join(apiDir, nodeInfo.Type+strconv.Itoa(nodeInfo.Id)+".cer")
+				keyFile := filepath.Join(apiDir, nodeInfo.Type+strconv.Itoa(nodeInfo.Id)+".key")
+				tlsJSON, err := json.Marshal(map[string]interface{}{
+					"alpn": []string{"h3"},
+					"certificates": []map[string]string{
+						{"certificateFile": certFile, "keyFile": keyFile},
+					},
+				})
+				if err == nil {
+					in.StreamSetting.TLSSettings = &coreConf.TLSConfig{}
+					_ = json.Unmarshal(tlsJSON, in.StreamSetting.TLSSettings)
+				}
+			} else {
+				in.StreamSetting.TLSSettings = &coreConf.TLSConfig{
+					Certs: []*coreConf.TLSCertConfig{
+						{
+							CertFile: filepath.Join(apiDir, nodeInfo.Type+strconv.Itoa(nodeInfo.Id)+".cer"),
+							KeyFile:  filepath.Join(apiDir, nodeInfo.Type+strconv.Itoa(nodeInfo.Id)+".key"),
+						},
+					},
+				}
 			}
-			in.StreamSetting.TLSSettings = tlsConfig
 		}
 	case "reality":
 		if in.StreamSetting == nil {
