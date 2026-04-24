@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	"github.com/perfect-panel/ppanel-node/api/panel"
+	"github.com/perfect-panel/ppanel-node/common/portmap"
 	"github.com/perfect-panel/ppanel-node/conf"
 	"github.com/perfect-panel/ppanel-node/core"
 	"github.com/perfect-panel/ppanel-node/limiter"
@@ -49,6 +50,7 @@ type Backend struct {
 	XrayCore *core.XrayCore
 	Nodes    *node.Node
 	ApiDir   string
+	HopRules []*portmap.HopPortRange // iptables DNAT rules created for Hysteria2 port hopping
 }
 
 func serverHandle(_ *cobra.Command, _ []string) {
@@ -118,6 +120,7 @@ func serverHandle(_ *cobra.Command, _ []string) {
 		select {
 		case <-osSignals:
 			for _, b := range backends {
+				portmap.RemoveAllHopPorts(b.HopRules)
 				b.Nodes.Close()
 				_ = b.XrayCore.Close()
 			}
@@ -133,7 +136,7 @@ func serverHandle(_ *cobra.Command, _ []string) {
 
 func startBackends(c *conf.Conf, reloadCh chan struct{}) []*Backend {
 	var backends []*Backend
-	usedPorts := make(map[int]string)
+	var usedRanges []portmap.PortRangeRecord // unified port range conflict detection
 
 	for _, apiConf := range c.Nodes {
 		u, err := url.Parse(apiConf.ApiHost)
@@ -183,15 +186,39 @@ func startBackends(c *conf.Conf, reloadCh chan struct{}) []*Backend {
 		xraycore.ReloadCh = reloadCh
 		isLocal := apiConf.LocalConfig && hasLocalFiles
 		
-		// Check port conflicts
+		// Check port conflicts (service ports + hop_ports ranges)
+		hasConflict := false
 		for _, proto := range *serverconfig.Data.Protocols {
-			if proto.Enable {
-				if host, exists := usedPorts[proto.Port]; exists {
-					log.Errorf("[警告] 发现重复监听端口: %d. (API: %s 与 API: %s 冲突)", proto.Port, host, apiConf.ApiHost)
-				} else {
-					usedPorts[proto.Port] = apiConf.ApiHost
+			if !proto.Enable {
+				continue
+			}
+			// Check service port conflict
+			if err := portmap.CheckPortRangeConflict(usedRanges, proto.Port, proto.Port, apiConf.ApiHost, fmt.Sprintf("%s/port", proto.Type)); err != nil {
+				log.Errorf("[警告] %s", err)
+				hasConflict = true
+			}
+			usedRanges = append(usedRanges, portmap.PortRangeRecord{
+				Start: proto.Port, End: proto.Port, Host: apiConf.ApiHost, Label: fmt.Sprintf("%s/port", proto.Type),
+			})
+
+			// Check hop_ports range conflict (for hysteria2)
+			if proto.HopPorts != "" {
+				hopStart, hopEnd, parseErr := portmap.ParseHopPorts(proto.HopPorts)
+				if parseErr != nil {
+					log.WithField("err", parseErr).Errorf("解析 hop_ports 失败: %s", apiConf.ApiHost)
+				} else if hopStart > 0 {
+					if err := portmap.CheckPortRangeConflict(usedRanges, hopStart, hopEnd, apiConf.ApiHost, fmt.Sprintf("%s/hop_ports", proto.Type)); err != nil {
+						log.Errorf("[警告] %s", err)
+						hasConflict = true
+					}
+					usedRanges = append(usedRanges, portmap.PortRangeRecord{
+						Start: hopStart, End: hopEnd, Host: apiConf.ApiHost, Label: fmt.Sprintf("%s/hop_ports", proto.Type),
+					})
 				}
 			}
+		}
+		if hasConflict {
+			log.Warnf("API %s 存在端口冲突，仍将尝试启动", apiConf.ApiHost)
 		}
 
 		err = xraycore.Start(serverconfig, apiDir, isLocal)
@@ -213,12 +240,30 @@ func startBackends(c *conf.Conf, reloadCh chan struct{}) []*Backend {
 			xraycore.Close()
 			continue
 		}
+
+		// Apply Hysteria2 hop_ports DNAT rules
+		var hopRules []*portmap.HopPortRange
+		for _, proto := range *serverconfig.Data.Protocols {
+			if !proto.Enable || proto.HopPorts == "" {
+				continue
+			}
+			if proto.Type == "hysteria" || proto.Type == "hysteria2" {
+				rule, hopErr := portmap.ApplyHopPorts(proto.Port, proto.HopPorts)
+				if hopErr != nil {
+					log.WithField("err", hopErr).Errorf("[PortMap] 应用端口映射失败: %s port=%d hop=%s", apiConf.ApiHost, proto.Port, proto.HopPorts)
+				} else if rule != nil {
+					hopRules = append(hopRules, rule)
+				}
+			}
+		}
+
 		log.Infof("API %s 已启动 %d 个节点", apiConf.ApiHost, serverconfig.Data.Total)
 		backends = append(backends, &Backend{
 			Config:   apiConfCopy,
 			XrayCore: xraycore,
 			Nodes:    nodes,
 			ApiDir:   apiDir,
+			HopRules: hopRules,
 		})
 	}
 	return backends
@@ -226,6 +271,7 @@ func startBackends(c *conf.Conf, reloadCh chan struct{}) []*Backend {
 
 func reload(configFile string, backends *[]*Backend, reloadCh chan struct{}) error {
 	for _, b := range *backends {
+		portmap.RemoveAllHopPorts(b.HopRules)
 		b.Nodes.Close()
 		if err := b.XrayCore.Close(); err != nil {
 			log.WithField("err", err).Error("关闭Xray核心失败")

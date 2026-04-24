@@ -10,6 +10,7 @@ RUN GOEXPERIMENT=jsonv2 go build -v -o ./output/ppnode -trimpath -ldflags "-s -w
 FROM  alpine
 # 安装必要的工具包
 RUN  apk --update --no-cache add tzdata ca-certificates \
+    iptables ip6tables \
     && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 RUN mkdir /etc/PPanel-node/
 COPY --from=builder /app/output/ppnode /usr/local/bin
