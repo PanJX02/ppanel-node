@@ -258,6 +258,38 @@ EOF
         fi
 }
 
+append_ppnode_config() {
+    local api_host="$1"
+    local server_id="$2"
+    local secret_key="$3"
+
+    if grep -q "ApiHost: ${api_host}" /etc/PPanel-node/config.yml; then
+        echo -e "${yellow}发现 API 地址 ${api_host} 已存在于配置中，跳过追加。${plain}"
+    else
+        cat >> /etc/PPanel-node/config.yml <<EOF
+  - ApiHost: ${api_host}
+    ServerID: ${server_id}
+    SecretKey: ${secret_key}
+    Timeout: 30
+EOF
+        echo -e "${green}成功将后端 API: ${api_host} 追加到配置文件中。${plain}"
+    fi
+
+    if [[ x"${release}" == x"alpine" ]]; then
+        service PPanel-node restart
+    else
+        systemctl restart PPanel-node
+    fi
+    sleep 2
+    check_status
+    echo -e ""
+    if [[ $? == 0 ]]; then
+        echo -e "${green}PPanel-node 重启成功${plain}"
+    else
+        echo -e "${red}PPanel-node 可能启动失败，请使用 ppnode log 查看日志信息${plain}"
+    fi
+}
+
 install_ppnode() {
     local version_param="$1"
     if [[ -e /usr/local/PPanel-node/ ]]; then
@@ -359,18 +391,22 @@ EOF
             first_install=true
         fi
     else
-        if [[ x"${release}" == x"alpine" ]]; then
-            service PPanel-node start
+        if [[ -n "$API_HOST_ARG" && -n "$SERVER_ID_ARG" && -n "$SECRET_KEY_ARG" ]]; then
+            append_ppnode_config "$API_HOST_ARG" "$SERVER_ID_ARG" "$SECRET_KEY_ARG"
         else
-            systemctl start PPanel-node
-        fi
-        sleep 2
-        check_status
-        echo -e ""
-        if [[ $? == 0 ]]; then
-            echo -e "${green}PPanel-node 重启成功${plain}"
-        else
-            echo -e "${red}PPanel-node 可能启动失败，请使用 ppnode log 查看日志信息${plain}"
+            if [[ x"${release}" == x"alpine" ]]; then
+                service PPanel-node start
+            else
+                systemctl start PPanel-node
+            fi
+            sleep 2
+            check_status
+            echo -e ""
+            if [[ $? == 0 ]]; then
+                echo -e "${green}PPanel-node 重启成功${plain}"
+            else
+                echo -e "${red}PPanel-node 可能启动失败，请使用 ppnode log 查看日志信息${plain}"
+            fi
         fi
         first_install=false
     fi
