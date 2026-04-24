@@ -661,7 +661,7 @@ EOF
 }
 
 # ===== 端口映射管理 =====
-PORTMAP_COMMENT_PREFIX="PPANEL_PORTMAP"
+PORTMAP_COMMENT_PREFIX="PPANEL_HOP"
 
 portmap_generate_comment() {
     local service_port=$1
@@ -714,7 +714,7 @@ portmap_list() {
     echo -e "${green}===== 当前 UDP 端口映射规则 =====${plain}"
     echo ""
     echo -e "${green}[IPv4 规则]${plain}"
-    local v4_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "$PORTMAP_COMMENT_PREFIX")
+    local v4_rules=$(iptables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "PPANEL_")
     if [[ -z "$v4_rules" ]]; then
         echo -e "  ${yellow}无${plain}"
     else
@@ -724,7 +724,7 @@ portmap_list() {
     fi
     echo ""
     echo -e "${green}[IPv6 规则]${plain}"
-    local v6_rules=$(ip6tables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "$PORTMAP_COMMENT_PREFIX")
+    local v6_rules=$(ip6tables -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "PPANEL_")
     if [[ -z "$v6_rules" ]]; then
         echo -e "  ${yellow}无${plain}"
     else
@@ -749,8 +749,8 @@ portmap_delete_by_comment() {
 
 portmap_delete() {
     # 收集所有唯一的 comment
-    local comments=$(iptables -t nat -S PREROUTING 2>/dev/null | grep -oP "${PORTMAP_COMMENT_PREFIX}_[0-9_]+" | sort -u)
-    local comments_v6=$(ip6tables -t nat -S PREROUTING 2>/dev/null | grep -oP "${PORTMAP_COMMENT_PREFIX}_[0-9_]+" | sort -u)
+    local comments=$(iptables -t nat -S PREROUTING 2>/dev/null | grep -oP "PPANEL_(HOP|PORTMAP)_[0-9_]+" | sort -u)
+    local comments_v6=$(ip6tables -t nat -S PREROUTING 2>/dev/null | grep -oP "PPANEL_(HOP|PORTMAP)_[0-9_]+" | sort -u)
     local all_comments=$(echo -e "${comments}\n${comments_v6}" | sort -u | grep -v '^$')
 
     if [[ -z "$all_comments" ]]; then
@@ -814,7 +814,7 @@ portmap_menu() {
             1) portmap_add ;;
             2) portmap_list ;;
             3) portmap_delete ;;
-            0) return ;;
+            0) show_menu; return ;;
             *) echo -e "${red}无效选择${plain}" ;;
         esac
         echo ""
