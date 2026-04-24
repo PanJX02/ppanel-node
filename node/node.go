@@ -12,7 +12,7 @@ type Node struct {
 	controllers []*Controller
 }
 
-func New(core *vCore.XrayCore, apiConfig *conf.ServerApiConfig, serverconfig *panel.ServerConfigResponse) (*Node, error) {
+func New(core *vCore.XrayCore, apiConfig *conf.ServerApiConfig, serverconfig *panel.ServerConfigResponse, apiDir string) (*Node, error) {
 	node := &Node{
 		controllers: make([]*Controller, len(*serverconfig.Data.Protocols)),
 	}
@@ -42,7 +42,7 @@ func New(core *vCore.XrayCore, apiConfig *conf.ServerApiConfig, serverconfig *pa
 		if err != nil {
 			return nil, err
 		}
-		node.controllers[i] = NewController(core, p, n)
+		node.controllers[i] = NewController(core, p, n, apiDir)
 	}
 
 	return node, nil

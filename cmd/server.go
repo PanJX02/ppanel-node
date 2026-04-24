@@ -168,7 +168,7 @@ func startBackends(c *conf.Conf, reloadCh chan struct{}) []*Backend {
 			}
 		}
 
-		xraycore := core.New(c, p)
+		xraycore := core.New(c, p, apiDir)
 		xraycore.ReloadCh = reloadCh
 		err = xraycore.Start(serverconfig, apiDir)
 		if err != nil {
@@ -177,7 +177,7 @@ func startBackends(c *conf.Conf, reloadCh chan struct{}) []*Backend {
 		}
 
 		apiConfCopy := apiConf // prevent pointer capture in loop
-		nodes, err := node.New(xraycore, &apiConfCopy, serverconfig)
+		nodes, err := node.New(xraycore, &apiConfCopy, serverconfig, apiDir)
 		if err != nil {
 			log.WithField("err", err).Errorf("获取节点配置失败: %s", apiConf.ApiHost)
 			xraycore.Close()

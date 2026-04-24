@@ -44,7 +44,7 @@ func (v *XrayCore) addInbound(config *core.InboundHandlerConfig) error {
 }
 
 // BuildInbound build Inbound config for different protocol
-func buildInbound(nodeInfo *panel.NodeInfo, tag string) (*core.InboundHandlerConfig, error) {
+func buildInbound(nodeInfo *panel.NodeInfo, tag string, apiDir string) (*core.InboundHandlerConfig, error) {
 	in := &coreConf.InboundDetourConfig{}
 	var err error
 	switch nodeInfo.Type {
@@ -101,8 +101,8 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string) (*core.InboundHandlerCon
 			in.StreamSetting.TLSSettings = &coreConf.TLSConfig{
 				Certs: []*coreConf.TLSCertConfig{
 					{
-						CertFile: filepath.Join("/etc/PPanel-node/", nodeInfo.Type+strconv.Itoa(nodeInfo.Id)+".cer"),
-						KeyFile:  filepath.Join("/etc/PPanel-node/", nodeInfo.Type+strconv.Itoa(nodeInfo.Id)+".key"),
+						CertFile: filepath.Join(apiDir, nodeInfo.Type+strconv.Itoa(nodeInfo.Id)+".cer"),
+						KeyFile:  filepath.Join(apiDir, nodeInfo.Type+strconv.Itoa(nodeInfo.Id)+".key"),
 					},
 				},
 			}

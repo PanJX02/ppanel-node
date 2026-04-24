@@ -7,7 +7,7 @@ import (
 )
 
 func (v *XrayCore) AddNode(tag string, info *panel.NodeInfo) error {
-	inBoundConfig, err := buildInbound(info, tag)
+	inBoundConfig, err := buildInbound(info, tag, v.ApiDir)
 	if err != nil {
 		return fmt.Errorf("build inbound error: %s", err)
 	}

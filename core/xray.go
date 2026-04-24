@@ -35,6 +35,7 @@ type AddUsersParams struct {
 type XrayCore struct {
 	Config                      *conf.Conf
 	Client                      *panel.ClientV2
+	ApiDir                      string
 	ReloadCh                    chan struct{}
 	serverConfigMonitorPeriodic *task.Task
 	access                      sync.Mutex
@@ -50,10 +51,11 @@ type UserMap struct {
 	mapLock sync.RWMutex
 }
 
-func New(config *conf.Conf, client *panel.ClientV2) *XrayCore {
+func New(config *conf.Conf, client *panel.ClientV2, apiDir string) *XrayCore {
 	core := &XrayCore{
 		Config: config,
 		Client: client,
+		ApiDir: apiDir,
 		users: &UserMap{
 			uidMap: make(map[string]int),
 		},
@@ -65,21 +67,21 @@ func (v *XrayCore) Start(serverconfig *panel.ServerConfigResponse, apiDir string
 	v.access.Lock()
 	defer v.access.Unlock()
 
-	// save panel.json
+	// save node.json (previously panel.json)
 	if panelJSON, err := json.MarshalIndent(serverconfig, "", "  "); err == nil {
-		_ = os.WriteFile(filepath.Join(apiDir, "panel.json"), panelJSON, 0644)
+		_ = os.WriteFile(filepath.Join(apiDir, "node.json"), panelJSON, 0644)
 	}
 
 	config := getCoreConfig(v.Config, serverconfig, apiDir)
 
-	// save node.json
+	// save core.json (previously node.json)
 	m := protojson.MarshalOptions{Multiline: true}
 	if nodeJSON, err := m.Marshal(config); err == nil {
-		_ = os.WriteFile(filepath.Join(apiDir, "node.json"), nodeJSON, 0644)
+		_ = os.WriteFile(filepath.Join(apiDir, "core.json"), nodeJSON, 0644)
 	}
 
 	// load from file
-	fileContent, err := os.ReadFile(filepath.Join(apiDir, "node.json"))
+	fileContent, err := os.ReadFile(filepath.Join(apiDir, "core.json"))
 	if err != nil {
 		return err
 	}

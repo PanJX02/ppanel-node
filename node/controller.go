@@ -20,6 +20,7 @@ type Controller struct {
 	userList                []panel.UserInfo
 	aliveMap                map[int]int
 	info                    *panel.NodeInfo
+	apiDir                  string
 	userListMonitorPeriodic *task.Task
 	userReportPeriodic      *task.Task
 	renewCertPeriodic       *task.Task
@@ -27,11 +28,12 @@ type Controller struct {
 }
 
 // NewController return a Node controller with default parameters.
-func NewController(core *vCore.XrayCore, api *panel.ClientV1, info *panel.NodeInfo) *Controller {
+func NewController(core *vCore.XrayCore, api *panel.ClientV1, info *panel.NodeInfo, apiDir string) *Controller {
 	controller := &Controller{
 		server:    core,
 		apiClient: api,
 		info:      info,
+		apiDir:    apiDir,
 	}
 	return controller
 }

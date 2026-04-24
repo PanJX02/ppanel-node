@@ -19,7 +19,7 @@ import (
 )
 
 func (c *Controller) renewCertTask(_ context.Context) error {
-	l, err := NewLego(c.info)
+	l, err := NewLego(c.info, c.apiDir)
 	if err != nil {
 		log.WithField("节点", c.tag).Info("new lego error: ", err)
 		return nil
@@ -33,15 +33,15 @@ func (c *Controller) renewCertTask(_ context.Context) error {
 }
 
 func (c *Controller) requestCert() error {
-	certFile := filepath.Join("/etc/PPanel-node/", c.info.Type+strconv.Itoa(c.info.Id)+".cer")
-	keyFile := filepath.Join("/etc/PPanel-node/", c.info.Type+strconv.Itoa(c.info.Id)+".key")
+	certFile := filepath.Join(c.apiDir, c.info.Type+strconv.Itoa(c.info.Id)+".cer")
+	keyFile := filepath.Join(c.apiDir, c.info.Type+strconv.Itoa(c.info.Id)+".key")
 	switch c.info.Protocol.CertMode {
 	case "none", "", "file":
 	case "dns", "http":
 		if file.IsExist(certFile) && file.IsExist(keyFile) {
 			return nil
 		}
-		l, err := NewLego(c.info)
+		l, err := NewLego(c.info, c.apiDir)
 		if err != nil {
 			return fmt.Errorf("create lego object error: %s", err)
 		}
