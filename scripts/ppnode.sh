@@ -284,8 +284,12 @@ delete_backend() {
 uninstall() {
     echo -e "  ${green}1.${plain} 删除单个后端节点配置"
     echo -e "  ${green}2.${plain} 完全卸载 PPanel-node"
-    echo && read -rp "请输入选择 [1-2]: " uninstall_choice
-    if [[ "${uninstall_choice}" == "1" ]]; then
+    echo -e "  ${green}0.${plain} 返回主菜单"
+    echo && read -rp "请输入选择 [0-2]: " uninstall_choice
+    if [[ "${uninstall_choice}" == "0" ]]; then
+        show_menu
+        return
+    elif [[ "${uninstall_choice}" == "1" ]]; then
         delete_backend
         return
     elif [[ "${uninstall_choice}" != "2" ]]; then
