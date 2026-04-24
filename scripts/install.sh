@@ -403,6 +403,8 @@ EOF
         curl -o /usr/bin/ppnode -Ls https://raw.githubusercontent.com/PanJX02/ppanel-node/master/scripts/ppnode.sh
         chmod +x /usr/bin/ppnode
     fi
+
+    if [[ ! -f /etc/PPanel-node/config.yml ]]; then
         # 如果通过 CLI 传入了完整参数，则直接生成配置并跳过交互
         if [[ -n "$API_HOST_ARG" && -n "$SERVER_ID_ARG" && -n "$SECRET_KEY_ARG" ]]; then
             generate_ppnode_config "$API_HOST_ARG" "$SERVER_ID_ARG" "$SECRET_KEY_ARG"
