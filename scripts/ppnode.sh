@@ -695,8 +695,8 @@ show_menu() {
 ————————————————
   ${green}4.${plain} 启动 PPanel-node
   ${green}5.${plain} 停止 PPanel-node
-  ${green}6.${plain} 锁定/解锁节点本地配置
-  ${green}7.${plain} 重启 PPanel-node
+  ${green}6.${plain} 重启 PPanel-node
+  ${green}7.${plain} 锁定/解锁节点本地配置
   ${green}8.${plain} 查看 PPanel-node 状态
   ${green}9.${plain} 查看 PPanel-node 日志
 ————————————————
@@ -720,8 +720,8 @@ show_menu() {
         3) check_install && uninstall ;;
         4) check_install && start ;;
         5) check_install && stop ;;
-        6) check_install && toggle_local_config ;;
-        7) check_install && restart ;;
+        6) check_install && restart ;;
+        7) check_install && toggle_local_config ;;
         8) check_install && status ;;
         9) check_install && show_log ;;
         10) check_install && enable ;;
