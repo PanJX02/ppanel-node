@@ -9,7 +9,6 @@ import (
 	"github.com/perfect-panel/ppanel-node/api/panel"
 	"github.com/perfect-panel/ppanel-node/common/portmap"
 	"github.com/perfect-panel/ppanel-node/conf"
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 

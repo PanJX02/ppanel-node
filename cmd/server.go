@@ -139,8 +139,7 @@ func startBackends(c *conf.Conf, reloadCh chan struct{}) []*Backend {
 	var usedRanges []portmap.PortRangeRecord // unified port range conflict detection
 
 	for _, apiConf := range c.Nodes {
-		u, err := url.Parse(apiConf.ApiHost)
-		if err != nil {
+		if _, err := url.Parse(apiConf.ApiHost); err != nil {
 			log.WithField("err", err).Errorf("解析ApiHost失败: %s", apiConf.ApiHost)
 			continue
 		}
