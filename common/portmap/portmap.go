@@ -241,16 +241,18 @@ func FindAllConflicts(ranges []PortRangeRecord) []PortConflictGroup {
 }
 
 // FormatConflicts formats conflict groups into human-readable log lines.
-// Output format: "检测到端口 10001 冲突: api.xxx (vless/port), api2.xxx (vless/port, ss/port)"
+// Single port: "检测到端口 10001 冲突: api.xxx (vless/port), api2.xxx (vless/port, ss/port)"
+// Range: "检测到端口范围 30001-60000 冲突: api1 (hysteria/hop_ports 30001-50000), api2 (hysteria/hop_ports 40001-50000)"
 func FormatConflicts(conflicts []PortConflictGroup) []string {
 	var lines []string
 	for _, g := range conflicts {
 		// Determine port display
 		var portDisplay string
-		if g.Start == g.End {
-			portDisplay = fmt.Sprintf("端口 %d", g.Start)
-		} else {
+		isGroupRange := g.Start != g.End
+		if isGroupRange {
 			portDisplay = fmt.Sprintf("端口范围 %d-%d", g.Start, g.End)
+		} else {
+			portDisplay = fmt.Sprintf("端口 %d", g.Start)
 		}
 
 		// Group records by host, preserving order of first appearance
@@ -265,7 +267,15 @@ func FormatConflicts(conflicts []PortConflictGroup) []string {
 				hostMap[r.Host] = &hostEntry{Host: r.Host}
 				hostOrder = append(hostOrder, r.Host)
 			}
-			hostMap[r.Host].Labels = append(hostMap[r.Host].Labels, r.Label)
+			// 当组内包含范围时，在 label 后附带各自的实际范围
+			label := r.Label
+			if r.Start != r.End {
+				label = fmt.Sprintf("%s %d-%d", r.Label, r.Start, r.End)
+			} else if isGroupRange {
+				// 单端口落在范围组里时，也显示具体端口
+				label = fmt.Sprintf("%s %d", r.Label, r.Start)
+			}
+			hostMap[r.Host].Labels = append(hostMap[r.Host].Labels, label)
 		}
 
 		// Build output parts
