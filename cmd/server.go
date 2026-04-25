@@ -190,39 +190,24 @@ func startBackends(c *conf.Conf, reloadCh chan struct{}) []*Backend {
 		xraycore.ReloadCh = reloadCh
 		isLocal := apiConf.LocalConfig && hasLocalFiles
 		
-		// Check port conflicts (service ports + hop_ports ranges)
-		hasConflict := false
+		// 收集端口信息用于冲突检测（不在此处输出日志）
 		for _, proto := range *serverconfig.Data.Protocols {
 			if !proto.Enable {
 				continue
 			}
-			// Check service port conflict
-			if err := portmap.CheckPortRangeConflict(usedRanges, proto.Port, proto.Port, apiConf.ApiHost, fmt.Sprintf("%s/port", proto.Type)); err != nil {
-				log.Errorf("[警告] %s", err)
-				hasConflict = true
-			}
 			usedRanges = append(usedRanges, portmap.PortRangeRecord{
 				Start: proto.Port, End: proto.Port, Host: apiConf.ApiHost, Label: fmt.Sprintf("%s/port", proto.Type),
 			})
-
-			// Check hop_ports range conflict (for hysteria2)
 			if proto.HopPorts != "" {
 				hopStart, hopEnd, parseErr := portmap.ParseHopPorts(proto.HopPorts)
 				if parseErr != nil {
 					log.WithField("err", parseErr).Errorf("解析 hop_ports 失败: %s", apiConf.ApiHost)
 				} else if hopStart > 0 {
-					if err := portmap.CheckPortRangeConflict(usedRanges, hopStart, hopEnd, apiConf.ApiHost, fmt.Sprintf("%s/hop_ports", proto.Type)); err != nil {
-						log.Errorf("[警告] %s", err)
-						hasConflict = true
-					}
 					usedRanges = append(usedRanges, portmap.PortRangeRecord{
 						Start: hopStart, End: hopEnd, Host: apiConf.ApiHost, Label: fmt.Sprintf("%s/hop_ports", proto.Type),
 					})
 				}
 			}
-		}
-		if hasConflict {
-			log.Warnf("API %s 存在端口冲突，仍将尝试启动", apiConf.ApiHost)
 		}
 
 		err = xraycore.Start(serverconfig, apiDir, isLocal)
@@ -270,6 +255,13 @@ func startBackends(c *conf.Conf, reloadCh chan struct{}) []*Backend {
 			HopRules: hopRules,
 		})
 	}
+
+	// 统一检测并输出端口冲突
+	conflicts := portmap.FindAllConflicts(usedRanges)
+	for _, line := range portmap.FormatConflicts(conflicts) {
+		log.Warnf("[警告] %s", line)
+	}
+
 	return backends
 }
 

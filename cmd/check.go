@@ -28,13 +28,13 @@ var checkCmd = &cobra.Command{
 			return
 		}
 
-		usedRanges := make([]portmap.PortRangeRecord, 0)
-		hasConflict := false
+		// 收集所有端口记录
+		var usedRanges []portmap.PortRangeRecord
 
 		for _, apiConf := range c.Nodes {
 			apiDir := apiConf.ApiDir()
 			nodeConfigPath := filepath.Join(apiDir, "node.json")
-			
+
 			nodeData, err := os.ReadFile(nodeConfigPath)
 			if err != nil {
 				// 如果文件不存在, 可能是还没启动过, 跳过检测
@@ -55,40 +55,33 @@ var checkCmd = &cobra.Command{
 					continue
 				}
 
-				// 检查主端口冲突
-				if err := portmap.CheckPortRangeConflict(usedRanges, proto.Port, proto.Port, apiConf.ApiHost, fmt.Sprintf("%s/port", proto.Type)); err != nil {
-					fmt.Printf("[冲突] %s\n", err)
-					hasConflict = true
-				} else {
-					usedRanges = append(usedRanges, portmap.PortRangeRecord{
-						Start: proto.Port,
-						End:   proto.Port,
-						Host:  apiConf.ApiHost,
-						Label: fmt.Sprintf("%s/port", proto.Type),
-					})
-				}
+				usedRanges = append(usedRanges, portmap.PortRangeRecord{
+					Start: proto.Port,
+					End:   proto.Port,
+					Host:  apiConf.ApiHost,
+					Label: fmt.Sprintf("%s/port", proto.Type),
+				})
 
-				// 检查跳跃端口冲突
 				if proto.HopPorts != "" {
 					start, end, err := portmap.ParseHopPorts(proto.HopPorts)
-					if err == nil {
-						if err := portmap.CheckPortRangeConflict(usedRanges, start, end, apiConf.ApiHost, fmt.Sprintf("%s/hop", proto.Type)); err != nil {
-							fmt.Printf("[冲突] %s\n", err)
-							hasConflict = true
-						} else {
-							usedRanges = append(usedRanges, portmap.PortRangeRecord{
-								Start: start,
-								End:   end,
-								Host:  apiConf.ApiHost,
-								Label: fmt.Sprintf("%s/hop", proto.Type),
-							})
-						}
+					if err == nil && start > 0 {
+						usedRanges = append(usedRanges, portmap.PortRangeRecord{
+							Start: start,
+							End:   end,
+							Host:  apiConf.ApiHost,
+							Label: fmt.Sprintf("%s/hop_ports", proto.Type),
+						})
 					}
 				}
 			}
 		}
 
-		if hasConflict {
+		// 统一检测冲突
+		conflicts := portmap.FindAllConflicts(usedRanges)
+		if len(conflicts) > 0 {
+			for _, line := range portmap.FormatConflicts(conflicts) {
+				fmt.Printf("[警告] %s\n", line)
+			}
 			os.Exit(1)
 		}
 		fmt.Println("未检测到端口冲突")

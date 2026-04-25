@@ -152,23 +152,130 @@ func removeByComment(cmd string, comment string) {
 	}
 }
 
-// CheckPortRangeConflict checks if a new port range [newStart, newEnd] conflicts
-// with any existing range in the list. Returns a descriptive error if conflict found.
-func CheckPortRangeConflict(ranges []PortRangeRecord, newStart, newEnd int, newHost, newLabel string) error {
-	for _, r := range ranges {
-		if newStart <= r.End && newEnd >= r.Start {
-			return fmt.Errorf("端口范围冲突: %s [%d-%d] (%s) 与 %s [%d-%d] (%s)",
-				newLabel, newStart, newEnd, newHost,
-				r.Label, r.Start, r.End, r.Host)
-		}
-	}
-	return nil
-}
-
 // PortRangeRecord records a registered port or port range for conflict detection.
 type PortRangeRecord struct {
 	Start int
 	End   int
 	Host  string
-	Label string // e.g. "port" or "hop_ports"
+	Label string // e.g. "vless/port" or "hysteria/hop_ports"
+}
+
+// String returns a human-readable representation of the record.
+// Single ports display as [port], ranges display as [start-end].
+func (r PortRangeRecord) String() string {
+	if r.Start == r.End {
+		return fmt.Sprintf("%s [%d] (%s)", r.Label, r.Start, r.Host)
+	}
+	return fmt.Sprintf("%s [%d-%d] (%s)", r.Label, r.Start, r.End, r.Host)
+}
+
+// PortConflictGroup represents a group of records that overlap on the same port/range.
+type PortConflictGroup struct {
+	Start   int
+	End     int
+	Records []PortRangeRecord
+}
+
+// overlaps checks whether two ranges overlap.
+func overlaps(aStart, aEnd, bStart, bEnd int) bool {
+	return aStart <= bEnd && aEnd >= bStart
+}
+
+// FindAllConflicts collects all port range records, groups overlapping ones,
+// and returns only groups with 2+ records (i.e. actual conflicts).
+func FindAllConflicts(ranges []PortRangeRecord) []PortConflictGroup {
+	// Use union-find style grouping: for each record, find all existing groups it overlaps with
+	var groups []PortConflictGroup
+
+	for _, r := range ranges {
+		// Find all groups this record overlaps with
+		var mergeIndices []int
+		for i, g := range groups {
+			if overlaps(r.Start, r.End, g.Start, g.End) {
+				mergeIndices = append(mergeIndices, i)
+			}
+		}
+
+		if len(mergeIndices) == 0 {
+			// No overlap, create a new group
+			groups = append(groups, PortConflictGroup{
+				Start:   r.Start,
+				End:     r.End,
+				Records: []PortRangeRecord{r},
+			})
+		} else {
+			// Merge into the first overlapping group
+			target := mergeIndices[0]
+			groups[target].Records = append(groups[target].Records, r)
+			if r.Start < groups[target].Start {
+				groups[target].Start = r.Start
+			}
+			if r.End > groups[target].End {
+				groups[target].End = r.End
+			}
+
+			// Merge any additional overlapping groups into the first one
+			for i := len(mergeIndices) - 1; i >= 1; i-- {
+				idx := mergeIndices[i]
+				groups[target].Records = append(groups[target].Records, groups[idx].Records...)
+				if groups[idx].Start < groups[target].Start {
+					groups[target].Start = groups[idx].Start
+				}
+				if groups[idx].End > groups[target].End {
+					groups[target].End = groups[idx].End
+				}
+				// Remove merged group
+				groups = append(groups[:idx], groups[idx+1:]...)
+			}
+		}
+	}
+
+	// Filter to only groups with actual conflicts (2+ records)
+	var conflicts []PortConflictGroup
+	for _, g := range groups {
+		if len(g.Records) >= 2 {
+			conflicts = append(conflicts, g)
+		}
+	}
+	return conflicts
+}
+
+// FormatConflicts formats conflict groups into human-readable log lines.
+// Output format: "检测到端口 10001 冲突: api.xxx (vless/port), api2.xxx (vless/port, ss/port)"
+func FormatConflicts(conflicts []PortConflictGroup) []string {
+	var lines []string
+	for _, g := range conflicts {
+		// Determine port display
+		var portDisplay string
+		if g.Start == g.End {
+			portDisplay = fmt.Sprintf("端口 %d", g.Start)
+		} else {
+			portDisplay = fmt.Sprintf("端口范围 %d-%d", g.Start, g.End)
+		}
+
+		// Group records by host, preserving order of first appearance
+		type hostEntry struct {
+			Host   string
+			Labels []string
+		}
+		hostOrder := make([]string, 0)
+		hostMap := make(map[string]*hostEntry)
+		for _, r := range g.Records {
+			if _, exists := hostMap[r.Host]; !exists {
+				hostMap[r.Host] = &hostEntry{Host: r.Host}
+				hostOrder = append(hostOrder, r.Host)
+			}
+			hostMap[r.Host].Labels = append(hostMap[r.Host].Labels, r.Label)
+		}
+
+		// Build output parts
+		var parts []string
+		for _, host := range hostOrder {
+			e := hostMap[host]
+			parts = append(parts, fmt.Sprintf("%s (%s)", e.Host, strings.Join(e.Labels, ", ")))
+		}
+
+		lines = append(lines, fmt.Sprintf("检测到%s冲突: %s", portDisplay, strings.Join(parts, ", ")))
+	}
+	return lines
 }
