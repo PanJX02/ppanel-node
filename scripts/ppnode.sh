@@ -622,8 +622,6 @@ EOF
         fi
 }
 
-}
-
 calculate_api_dir() {
     local api_host="$1"
     # 提取 hostname
