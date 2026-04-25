@@ -1,8 +1,12 @@
 package conf
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"net/url"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/viper"
 )
@@ -25,6 +29,14 @@ type ServerApiConfig struct {
 	SecretKey   string `mapstructure:"SecretKey"`
 	Timeout     int    `mapstructure:"Timeout"`
 	LocalConfig bool   `mapstructure:"LocalConfig"`
+}
+
+func (s *ServerApiConfig) ApiDir() string {
+	u, err := url.Parse(s.ApiHost)
+	if err != nil {
+		return filepath.Join("/etc/PPanel-node", "unknown")
+	}
+	return filepath.Join("/etc/PPanel-node", u.Hostname())
 }
 
 type NodeApiConfig struct {

@@ -266,6 +266,7 @@ delete_backend() {
         local target_host="${api_hosts[$((choice-1))]}"
         confirm "确定要删除节点 ${target_host} 吗?" "n"
         if [[ $? == 0 ]]; then
+            local target_dir=$(calculate_api_dir "${target_host}")
             awk -v target="ApiHost: ${target_host}" '
             BEGIN { deleting=0 }
             /ApiHost:/ {
@@ -273,7 +274,13 @@ delete_backend() {
             }
             { if (!deleting) { print $0 } }
             ' /etc/PPanel-node/config.yml > /tmp/config.yml.tmp && mv /tmp/config.yml.tmp /etc/PPanel-node/config.yml
-            echo -e "${green}已成功从配置中删除节点 ${target_host}。${plain}"
+            
+            if [[ -d "${target_dir}" ]]; then
+                rm -rf "${target_dir}"
+                echo -e "${green}已成功从配置中删除节点 ${target_host} 并清理目录 ${target_dir}。${plain}"
+            else
+                echo -e "${green}已成功从配置中删除节点 ${target_host}。${plain}"
+            fi
             restart
             return
         fi
@@ -545,6 +552,14 @@ show_status() {
         2)
             echo -e "PPanel-node状态: ${red}未安装${plain}"
     esac
+
+    # 检查端口冲突
+    if [[ -f /usr/local/PPanel-node/ppnode ]]; then
+        /usr/local/PPanel-node/ppnode check > /dev/null 2>&1
+        if [[ $? -ne 0 ]]; then
+            echo -e "端口检测状态: ${red}检测到端口冲突！请检查日志或配置${plain}"
+        fi
+    fi
 }
 
 show_enable_status() {
@@ -605,6 +620,15 @@ EOF
         else
             echo -e "${red}PPanel-node 可能启动失败，请使用 ppnode log 查看日志信息${plain}"
         fi
+}
+
+}
+
+calculate_api_dir() {
+    local api_host="$1"
+    # 提取 hostname
+    local hostname=$(echo "${api_host}" | sed -e 's|^[^/]*//||' -e 's|/.*$||' -e 's|:.*$||')
+    echo "/etc/PPanel-node/${hostname}"
 }
 
 generate_config_file() {

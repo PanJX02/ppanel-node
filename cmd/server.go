@@ -145,7 +145,7 @@ func startBackends(c *conf.Conf, reloadCh chan struct{}) []*Backend {
 			continue
 		}
 		
-		apiDir := filepath.Join("/etc/PPanel-node", u.Hostname())
+		apiDir := apiConf.ApiDir()
 		if err := os.MkdirAll(apiDir, 0755); err != nil {
 			log.WithField("err", err).Errorf("创建目录失败: %s", apiDir)
 			continue
@@ -170,14 +170,18 @@ func startBackends(c *conf.Conf, reloadCh chan struct{}) []*Backend {
 				continue
 			}
 		} else {
-			data, err := os.ReadFile(filepath.Join(apiDir, "node.json"))
+			nodeData, err := os.ReadFile(filepath.Join(apiDir, "node.json"))
 			if err != nil {
 				log.WithField("err", err).Errorf("读取本地 node.json 失败: %s", apiConf.ApiHost)
 				continue
 			}
-			err = json.Unmarshal(data, &serverconfig)
+			err = json.Unmarshal(nodeData, &serverconfig)
 			if err != nil {
-				log.WithField("err", err).Errorf("解析本地 node.json 失败: %s", apiConf.ApiHost)
+				log.Errorf("解析本地 node.json 失败 (%s): %s", apiDir, err)
+				continue
+			}
+			if serverconfig == nil || serverconfig.Data == nil || serverconfig.Data.Protocols == nil {
+				log.Errorf("本地 node.json 格式错误或缺少协议信息 (%s)", apiDir)
 				continue
 			}
 		}
