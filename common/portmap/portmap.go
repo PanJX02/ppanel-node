@@ -66,16 +66,15 @@ func ApplyHopPorts(servicePort int, hopPorts string) (*HopPortRange, error) {
 	comment := generateComment(servicePort, start, end)
 	portRange := fmt.Sprintf("%d:%d", start, end)
 
-	// IPv4: iptables
+	removeByComment("iptables", comment)
 	if err := runIptables("iptables", portRange, servicePort, comment); err != nil {
 		return nil, fmt.Errorf("apply IPv4 hop rule failed: %v", err)
 	}
 	log.Infof("[PortMap] IPv4 DNAT 已添加: UDP %d-%d -> %d", start, end, servicePort)
 
-	// IPv6: ip6tables (best-effort, log warning on failure)
-	// Try to load kernel modules first
 	_ = exec.Command("modprobe", "ip6_tables").Run()
 	_ = exec.Command("modprobe", "ip6table_nat").Run()
+	removeByComment("ip6tables", comment)
 	if err := runIptables("ip6tables", portRange, servicePort, comment); err != nil {
 		log.Warnf("[PortMap] IPv6 DNAT 添加失败 (可能不支持): %v", err)
 	} else {
@@ -90,7 +89,6 @@ func ApplyHopPorts(servicePort int, hopPorts string) (*HopPortRange, error) {
 	}, nil
 }
 
-// runIptables executes an iptables/ip6tables DNAT rule addition.
 func runIptables(cmd string, portRange string, servicePort int, comment string) error {
 	args := []string{
 		"-t", "nat", "-A", "PREROUTING",

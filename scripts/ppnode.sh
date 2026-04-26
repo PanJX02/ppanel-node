@@ -288,6 +288,22 @@ delete_backend() {
     if [[ $# == 0 ]]; then before_show_menu; fi
 }
 
+portmap_delete_all() {
+    local comments=$(iptables -t nat -S PREROUTING 2>/dev/null | grep -oP "PPANEL_(HOP|PORTMAP)_[0-9_]+" | sort -u)
+    local comments_v6=$(ip6tables -t nat -S PREROUTING 2>/dev/null | grep -oP "PPANEL_(HOP|PORTMAP)_[0-9_]+" | sort -u)
+    local all_comments=$(echo -e "${comments}\n${comments_v6}" | sort -u | grep -v '^$')
+
+    if [[ -z "$all_comments" ]]; then
+        return
+    fi
+
+    while IFS= read -r c; do
+        [[ -z "$c" ]] && continue
+        portmap_delete_by_comment "iptables" "$c"
+        portmap_delete_by_comment "ip6tables" "$c"
+    done <<< "$all_comments"
+}
+
 uninstall() {
     echo -e "  ${green}1.${plain} 删除单个后端节点配置"
     echo -e "  ${green}2.${plain} 完全卸载 PPanel-node"
@@ -325,11 +341,12 @@ uninstall() {
         systemctl daemon-reload
         systemctl reset-failed
     fi
+    portmap_delete_all
     rm /etc/PPanel-node/ -rf
     rm /usr/local/PPanel-node/ -rf
 
     echo ""
-    echo -e "卸载成功，如果你想删除此脚本，则退出脚本后运行 ${green}rm /usr/bin/ppnode -f${plain} 进行删除"
+    echo -e "卸载成功，已清理所有 PPanel-node 相关 UDP 端口映射规则。如果你想删除此脚本，则退出脚本后运行 ${green}rm /usr/bin/ppnode -f${plain} 进行删除"
     echo ""
 
     if [[ $# == 0 ]]; then
@@ -713,7 +730,7 @@ portmap_add() {
     local comment=$(portmap_generate_comment "$service_port" "$start_port" "$end_port")
     local port_range="${start_port}:${end_port}"
 
-    # IPv4
+    portmap_delete_by_comment "iptables" "$comment"
     iptables -t nat -A PREROUTING -p udp --dport "$port_range" -j DNAT --to-destination ":$service_port" -m comment --comment "$comment" 2>/dev/null
     if [[ $? -eq 0 ]]; then
         echo -e "${green}IPv4 DNAT 已添加: UDP ${start_port}-${end_port} -> ${service_port}${plain}"
@@ -721,9 +738,9 @@ portmap_add() {
         echo -e "${red}IPv4 DNAT 添加失败${plain}"
     fi
 
-    # IPv6
     modprobe ip6_tables 2>/dev/null
     modprobe ip6table_nat 2>/dev/null
+    portmap_delete_by_comment "ip6tables" "$comment"
     ip6tables -t nat -A PREROUTING -p udp --dport "$port_range" -j DNAT --to-destination ":$service_port" -m comment --comment "$comment" 2>/dev/null
     if [[ $? -eq 0 ]]; then
         echo -e "${green}IPv6 DNAT 已添加: UDP ${start_port}-${end_port} -> ${service_port}${plain}"
